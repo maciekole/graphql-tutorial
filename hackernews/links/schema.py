@@ -1,5 +1,7 @@
 import graphene
+from django.db.models import Q
 from graphene_django import DjangoObjectType
+from graphql import GraphQLError
 from users.schema import UserType
 
 from .models import Link, Vote
@@ -16,11 +18,30 @@ class VoteType(DjangoObjectType):
 
 
 class Query(graphene.ObjectType):
-    links = graphene.List(LinkType)
+    links = graphene.List(
+        LinkType,
+        search=graphene.String(),
+        first=graphene.Int(),
+        skip=graphene.Int(),
+    )
     votes = graphene.List(VoteType)
 
-    def resolve_links(self, info, **kwargs):
-        return Link.objects.all()
+    def resolve_links(
+        self, info, search=None, first=None, skip=None, **kwargs
+    ):
+        qs = Link.objects.all()
+
+        if search:
+            filter = Q(url__contains=search) | Q(description__contains=search)
+            qs = qs.filter(filter)
+
+        if skip:
+            qs = qs[skip:]
+
+        if first:
+            qs = qs[:first]
+
+        return qs
 
     def resolve_votes(self, info, **kwargs):
         return Vote.objects.all()
@@ -61,7 +82,7 @@ class CreateVote(graphene.Mutation):
         user = info.context.user
 
         if user.is_anonymous:
-            raise Exception("You must be logged in to vote!")
+            raise GraphQLError("You must be logged in to vote!")
 
         try:
             link = Link.objects.get(id=link_id)
